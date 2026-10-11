@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Research Agent</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #202124; --muted: #70757a; --line: #e7e8eb;
+      --blue: #1a73e8; --soft-blue: #e8f0fe; --panel: #fff; --bg: #fafafa;
+      font: 15px Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--bg); }
+    header { height: 64px; border-bottom: 1px solid var(--line); background: var(--panel);
+      display: flex; align-items: center; padding: 0 28px; gap: 12px; }
+    .logo { width: 30px; height: 30px; border-radius: 9px; background: var(--blue);
+      color: white; display: grid; place-items: center; font-weight: 800; }
+    header strong { font-size: 18px; } header span { color: var(--muted); }
+    main { max-width: 1180px; margin: 0 auto; padding: 34px 24px 64px; }
+    .hero { max-width: 800px; margin: 0 auto 30px; text-align: center; }
+    h1 { font-size: clamp(28px, 4vw, 42px); letter-spacing: -.04em; margin: 20px 0 10px; }
+    .hero p { color: var(--muted); font-size: 16px; }
+    .searchbox { background: var(--panel); border: 1px solid #cfd2d8; border-radius: 14px;
+      box-shadow: 0 3px 14px #20212412; padding: 14px; text-align: left; }
+    textarea { width: 100%; min-height: 78px; resize: vertical; border: 0; outline: 0;
+      font: inherit; color: var(--ink); background: transparent; }
+    .search-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    select, button { border: 1px solid var(--line); border-radius: 8px; padding: 9px 13px;
+      background: var(--panel); color: var(--ink); font: inherit; }
+    button { background: var(--blue); color: white; border-color: var(--blue); font-weight: 600;
+      cursor: pointer; } button:disabled { opacity: .55; cursor: wait; }
+    .statusbar { display: flex; justify-content: space-between; color: var(--muted);
+      margin: 20px 0 12px; font-size: 13px; }
+    .status { color: var(--blue); font-weight: 700; text-transform: capitalize; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 20px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+      padding: 20px; margin-bottom: 20px; }
+    h2 { font-size: 17px; margin: 0 0 16px; } h3 { font-size: 14px; margin: 0 0 7px; }
+    .report { white-space: pre-wrap; line-height: 1.65; min-height: 100px; }
+    .event { border-left: 3px solid var(--blue); padding: 8px 10px; margin: 9px 0;
+      background: #f7f9fc; font-size: 13px; }
+    .event small { display: block; color: var(--muted); margin-bottom: 3px; }
+    .claim { border-top: 1px solid var(--line); padding: 13px 0; line-height: 1.45; }
+    .claim:first-of-type { border-top: 0; padding-top: 0; }
+    .claim a { color: var(--blue); text-decoration: none; font-size: 12px; }
+    .empty { color: var(--muted); line-height: 1.5; }
+    @media (max-width: 850px) { .layout { grid-template-columns: 1fr; } header { padding: 0 16px; } main { padding: 24px 14px; } }
+  </style>
+</head>
+<body>
+  <header><div class="logo">R</div><strong>Research Agent</strong><span>Evidence-first answers</span></header>
+  <main>
+    <div class="hero">
+      <h1>What do you want to know?</h1>
+      <p>Search the web, inspect sources, and get a cited synthesis.</p>
+      <div class="searchbox">
+        <textarea id="question" placeholder="Ask a research question..."></textarea>
+        <div class="search-actions">
+          <select id="iterations" title="Research depth">
+            <option value="8" selected>Fast research</option>
+            <option value="10">Balanced research</option>
+            <option value="14">Deep research</option>
+          </select>
+          <button id="start">Research →</button>
+        </div>
+      </div>
+    </div>
+    <div class="statusbar"><span id="status">Ready for a question</span><span id="clock"></span></div>
+    <div class="layout">
+      <div>
+        <section class="card"><h2>Answer</h2><div id="report" class="report empty">Your cited answer will appear here.</div></section>
+        <section class="card"><h2>Research activity</h2><div id="events" class="empty">No research started.</div></section>
+      </div>
+      <aside class="card"><h2>Sources & evidence</h2><div id="evidence" class="empty">Sources collected during research will appear here.</div></aside>
+    </div>
+  </main>
+  <script>
+    const $ = id => document.getElementById(id);
+    let timer, started;
+    function eventText(event) {
+      const name = event.type.replaceAll("_", " ");
+      if (event.type === "tool_started") return `${name}: ${event.data.tool}`;
+      if (event.type === "tool_completed") return `${name}: source processed`;
+      return `${name}: ${JSON.stringify(event.data)}`;
+    }
+    function render(job) {
+      $("status").textContent = job.error ? `Failed: ${job.error}` : job.status;
+      $("clock").textContent = started ? `${Math.round((Date.now() - started) / 1000)}s` : "";
+      $("events").innerHTML = job.events.length ? job.events.map(e =>
+        `<div class="event"><small>${new Date(e.timestamp).toLocaleTimeString()}</small>${eventText(e)}</div>`).join("") : "Waiting for activity...";
+      $("evidence").innerHTML = job.evidence.length ? job.evidence.map(c =>
+        `<div class="claim"><h3>${c.claim}</h3><a href="${c.source_url}" target="_blank" rel="noreferrer">${c.source_url}</a><br><small>${c.methodology || "Source evidence"} · ${c.confidence || "unrated"} confidence</small></div>`).join("") : "Claims will appear after source inspection.";
+      if (job.report) { $("report").textContent = job.report; $("report").classList.remove("empty"); }
+      if (job.status === "completed" || job.status === "failed") { clearInterval(timer); $("start").disabled = false; }
+    }
+    $("start").onclick = async () => {
+      const question = $("question").value.trim();
+      if (!question) return alert("Enter a research question.");
+      $("start").disabled = true; $("report").textContent = "Researching..."; $("report").classList.remove("empty");
+      started = Date.now(); $("status").textContent = "starting";
+      const response = await fetch("/api/research", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({question, max_iterations: Number($("iterations").value)})});
+      const job = await response.json();
+      if (!response.ok) { $("status").textContent = job.detail || "Request failed"; $("start").disabled = false; return; }
+      const refresh = async () => render(await (await fetch(`/api/research/${job.id}`)).json());
+      await refresh(); timer = setInterval(refresh, 1500);
+    };
+  </script>
+</body>
+</html>
